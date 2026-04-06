@@ -1,0 +1,94 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["fullTextSearchPostgres"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  USER
+}
+
+enum TaskStatus {
+  PENDING
+  PROCESSING
+  DONE
+}
+
+enum AuditAction {
+  TASK_CREATED
+  TASK_UPDATED
+  TASK_DELETED
+  TASK_STATUS_CHANGED
+  TASK_ASSIGNED
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  password_hash String
+  role          UserRole  @default(USER)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  deleted_at DateTime?
+
+  tasks_assigned Task[]    @relation("TaskAssignee")
+  tasks_created  Task[]    @relation("TaskCreator")
+  audit_logs     AuditLog[]
+
+  @@index([role])
+  @@map("users")
+}
+
+model Task {
+  id          String       @id @default(cuid())
+  title       String
+  description String       @db.Text
+  status      TaskStatus   @default(PENDING)
+
+  assignee_id String?
+  assignee    User?        @relation("TaskAssignee", fields: [assignee_id], references: [id], onDelete: SetNull)
+
+  created_by_id String
+  created_by    User       @relation("TaskCreator", fields: [created_by_id], references: [id], onDelete: Restrict)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  deleted_at DateTime?
+
+  audit_logs AuditLog[]
+
+  @@index([assignee_id])
+  @@index([status])
+  @@index([created_by_id])
+  @@index([deleted_at])
+  @@map("tasks")
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  created_at DateTime @default(now())
+
+  actor_id String
+  actor    User   @relation(fields: [actor_id], references: [id], onDelete: Restrict)
+
+  action      AuditAction
+  entity_type String      @default("task")
+  entity_id   String
+
+  task_id String?
+  task    Task?   @relation(fields: [task_id], references: [id], onDelete: SetNull)
+
+  payload Json
+
+  @@index([entity_type, entity_id])
+  @@index([actor_id, created_at(sort: Desc)])
+  @@index([task_id, created_at(sort: Desc)])
+  @@map("audit_logs")
+}
