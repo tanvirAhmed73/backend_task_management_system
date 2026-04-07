@@ -16,7 +16,6 @@ import {
 import { AuthService } from './auth.service';
 import { AuthRoles } from './decorators/auth-roles.decorator';
 import { CurrentUser } from './decorators/current-user.decorator';
-import { AdminHealthDto } from './dto/admin-health.dto';
 import { LoginDto } from './dto/login.dto';
 import { AuthUserViewDto, LoginResponseDto } from './dto/login-response.dto';
 import type { SafeUser } from './types/safe-user.type';
@@ -56,17 +55,5 @@ export class AuthController {
   @ApiResponse({ status: 200, type: AuthUserViewDto })
   me(@CurrentUser() user: SafeUser): AuthUserViewDto {
     return user;
-  }
-
-  @Get('admin/health')
-  @AuthRoles('ADMIN')
-  @ApiOperation({
-    summary: 'Admin-only probe',
-    description:
-      'ADMIN-only example; use the same guards on task and audit admin routes.',
-  })
-  @ApiResponse({ status: 200, type: AdminHealthDto })
-  adminHealth(): AdminHealthDto {
-    return { ok: true, scope: 'admin' };
   }
 }
