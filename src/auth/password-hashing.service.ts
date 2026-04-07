@@ -11,6 +11,7 @@ export class PasswordHashingService {
     return typeof r === 'number' && Number.isFinite(r) ? r : 12;
   }
 
+  // plainPassword is the password that the user enters
   async hash(plainPassword: string): Promise<string> {
     const plain = plainPassword?.trim();
     if (!plain) {
