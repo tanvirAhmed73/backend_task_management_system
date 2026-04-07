@@ -1,0 +1,50 @@
+import { ConflictException, Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+import { PasswordHashingService } from '../auth/password-hashing.service';
+import type { SafeUser } from '../auth/types/safe-user.type';
+import { PrismaService } from '../prisma/prisma.service';
+import type { CreateUserDto } from './dto/create-user.dto';
+
+@Injectable()
+export class UsersService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly passwords: PasswordHashingService,
+  ) {}
+
+  async createByAdmin(dto: CreateUserDto): Promise<SafeUser> {
+    const password_hash = await this.passwords.hash(dto.password);
+    const role = dto.role ?? 'USER';
+
+    try {
+      const user = await this.prisma.user.create({
+        data: {
+          email: dto.email,
+          password_hash,
+          name: dto.name ?? null,
+          role,
+        },
+        select: {
+          id: true,
+          email: true,
+          role: true,
+          name: true,
+        },
+      });
+      return {
+        id: user.id,
+        email: user.email,
+        role: user.role as SafeUser['role'],
+        name: user.name,
+      };
+    } catch (e) {
+      if (
+        e instanceof Prisma.PrismaClientKnownRequestError &&
+        e.code === 'P2002'
+      ) {
+        throw new ConflictException('A user with this email already exists');
+      }
+      throw e;
+    }
+  }
+}

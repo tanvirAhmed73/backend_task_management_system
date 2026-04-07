@@ -1,6 +1,6 @@
 import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Prisma, PrismaClient } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 
 /**
  * Prisma ORM 6 no longer exposes `$use` middleware on the generated client.
@@ -8,7 +8,7 @@ import { Prisma, PrismaClient } from '@prisma/client';
  */
 @Injectable()
 export class PrismaService
-  extends PrismaClient<Prisma.PrismaClientOptions, 'query'>
+  extends PrismaClient
   implements OnModuleInit, OnModuleDestroy
 {
   constructor(private readonly config: ConfigService) {

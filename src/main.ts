@@ -1,4 +1,3 @@
-
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
@@ -27,10 +26,20 @@ async function bootstrap() {
   // swagger setup
   const swaggerOptions = new DocumentBuilder()
     .setTitle(`${appName} api`)
-    .setDescription(`${appName} api docs`)
+    .setDescription(
+      `${appName} API. Call POST /api/auth/login, then send the returned access_token as a Bearer token. Roles: ADMIN, USER.`,
+    )
     .setVersion('1.0')
     .addTag(appName)
-    .addBearerAuth()
+    .addBearerAuth(
+      {
+        type: 'http',
+        scheme: 'bearer',
+        bearerFormat: 'JWT',
+        description: 'Paste the value of `access_token` from POST /auth/login',
+      },
+      'access-token',
+    )
     .build();
   const document = SwaggerModule.createDocument(app, swaggerOptions);
   SwaggerModule.setup('api/docs', app, document);
