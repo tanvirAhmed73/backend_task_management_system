@@ -1,4 +1,8 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
 import type { LoginDto } from './dto/login.dto';
@@ -57,5 +61,28 @@ export class AuthService {
     };
     const access_token = await this.jwt.signAsync(payload);
     return { access_token, user };
+  }
+
+  async changePassword(
+    userId: string,
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<void> {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, deleted_at: null },
+      select: { id: true, password_hash: true },
+    });
+    if (!user) {
+      throw new UnauthorizedException();
+    }
+    const ok = await this.passwords.verify(currentPassword, user.password_hash);
+    if (!ok) {
+      throw new BadRequestException('Current password is incorrect');
+    }
+    const password_hash = await this.passwords.hash(newPassword);
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { password_hash },
+    });
   }
 }

@@ -40,6 +40,7 @@ model User {
 
   tasks_assigned Task[]    @relation("TaskAssignee")
   tasks_created  Task[]    @relation("TaskCreator")
+  task_comments  TaskComment[]
   audit_logs     AuditLog[]
 
   @@index([role])
@@ -62,6 +63,7 @@ model Task {
   updated_at DateTime @updatedAt
   deleted_at DateTime?
 
+  comments   TaskComment[]
   audit_logs AuditLog[]
 
   @@index([assignee_id])
@@ -69,6 +71,22 @@ model Task {
   @@index([created_by_id])
   @@index([deleted_at])
   @@map("tasks")
+}
+
+model TaskComment {
+  id         String   @id @default(cuid())
+  body       String   @db.Text
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  task_id String
+  task    Task @relation(fields: [task_id], references: [id], onDelete: Cascade)
+
+  author_id String
+  author    User @relation(fields: [author_id], references: [id], onDelete: Restrict)
+
+  @@index([task_id, created_at])
+  @@map("task_comments")
 }
 
 model AuditLog {

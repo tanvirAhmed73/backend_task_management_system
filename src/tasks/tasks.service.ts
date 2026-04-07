@@ -4,12 +4,15 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, TaskStatus } from '@prisma/client';
+import { Prisma, TaskStatus, UserRole } from '@prisma/client';
 import type { SafeUser } from '../auth/types/safe-user.type';
+import { EmailJobsService } from '../mail/email-jobs.service';
 import {
   NotificationsBusService,
   TASK_ASSIGNED_EVENT,
+  TASK_COMPLETED_EVENT,
   type TaskAssignedNotificationPayload,
+  type TaskCompletedNotificationPayload,
 } from '../notifications/notifications-bus.service';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CreateTaskDto } from './dto/create-task.dto';
@@ -33,6 +36,7 @@ export class TasksService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsBusService,
+    private readonly emailJobs: EmailJobsService,
   ) {}
 
   private toView(row: TaskWithRelations): TaskViewDto {
@@ -103,6 +107,72 @@ export class TasksService {
       TASK_ASSIGNED_EVENT,
       payload,
     );
+
+    const assignee = task.assignee;
+    if (assignee?.id === newAssigneeId) {
+      void this.emailJobs.enqueueTaskAssigned({
+        toEmail: assignee.email,
+        recipientName: assignee.name,
+        taskId: task.id,
+        taskTitle: task.title,
+        taskStatus: task.status,
+        assignerName: actor.name,
+        assignerEmail: actor.email,
+      });
+    }
+  }
+
+  /** When the assignee moves a task to DONE, notify all admins (WebSocket + email). */
+  private async notifyAdminsTaskCompleted(
+    task: TaskViewDto,
+    completedBy: SafeUser,
+  ): Promise<void> {
+    const payload: TaskCompletedNotificationPayload = {
+      type: 'TASK_COMPLETED',
+      message: `Assignee marked task "${task.title}" as done`,
+      task: {
+        id: task.id,
+        title: task.title,
+        status: task.status,
+      },
+      completedBy: {
+        id: completedBy.id,
+        email: completedBy.email,
+        name: completedBy.name,
+      },
+    };
+    this.notifications.emitToAdmins(TASK_COMPLETED_EVENT, payload);
+
+    const admins = await this.prisma.user.findMany({
+      where: { deleted_at: null, role: UserRole.ADMIN },
+      select: { email: true, name: true },
+    });
+    for (const a of admins) {
+      void this.emailJobs.enqueueTaskCompletedNotice({
+        toEmail: a.email,
+        adminRecipientName: a.name,
+        taskId: task.id,
+        taskTitle: task.title,
+        completedByName: completedBy.name,
+        completedByEmail: completedBy.email,
+      });
+    }
+  }
+
+  private async notifyAdminsIfAssigneeCompletedTask(
+    existing: TaskWithRelations,
+    row: TaskWithRelations,
+    actor: SafeUser,
+    task: TaskViewDto,
+  ): Promise<void> {
+    const becameDone =
+      existing.status !== TaskStatus.DONE && row.status === TaskStatus.DONE;
+    const assigneeFinished =
+      existing.assignee_id !== null && actor.id === existing.assignee_id;
+    if (!becameDone || !assigneeFinished) {
+      return;
+    }
+    await this.notifyAdminsTaskCompleted(task, actor);
   }
 
   async create(dto: CreateTaskDto, actor: SafeUser): Promise<TaskViewDto> {
@@ -196,6 +266,7 @@ export class TasksService {
     });
     const view = this.toView(row);
     this.notifyNewAssignee(actor, previousAssigneeId, row.assignee_id, view);
+    await this.notifyAdminsIfAssigneeCompletedTask(existing, row, actor, view);
     return view;
   }
 

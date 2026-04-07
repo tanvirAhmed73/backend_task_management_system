@@ -4,9 +4,11 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Patch,
   Post,
 } from '@nestjs/common';
 import {
+  ApiBadRequestResponse,
   ApiBody,
   ApiNoContentResponse,
   ApiOperation,
@@ -16,6 +18,7 @@ import {
 import { AuthService } from './auth.service';
 import { AuthRoles } from './decorators/auth-roles.decorator';
 import { CurrentUser } from './decorators/current-user.decorator';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { LoginDto } from './dto/login.dto';
 import { AuthUserViewDto, LoginResponseDto } from './dto/login-response.dto';
 import type { SafeUser } from './types/safe-user.type';
@@ -23,7 +26,7 @@ import type { SafeUser } from './types/safe-user.type';
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly auth: AuthService) {}
+  constructor(private readonly authService: AuthService) {}
 
   @Post('login')
   @ApiOperation({ summary: 'Obtain JWT access token' })
@@ -31,7 +34,7 @@ export class AuthController {
   @ApiResponse({ status: 200, type: LoginResponseDto })
   @ApiResponse({ status: 401, description: 'Invalid credentials' })
   async login(@Body() dto: LoginDto): Promise<LoginResponseDto> {
-    return this.auth.login(dto);
+    return this.authService.login(dto);
   }
 
   /**
@@ -55,5 +58,29 @@ export class AuthController {
   @ApiResponse({ status: 200, type: AuthUserViewDto })
   me(@CurrentUser() user: SafeUser): AuthUserViewDto {
     return user;
+  }
+
+  @Patch('password')
+  @AuthRoles('ADMIN', 'USER')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({
+    summary: 'Change password',
+    description:
+      'Updates the authenticated user’s password. Existing JWTs stay valid until expiry.',
+  })
+  @ApiBody({ type: ChangePasswordDto })
+  @ApiNoContentResponse()
+  @ApiBadRequestResponse({
+    description: 'Validation failed or current password incorrect',
+  })
+  changePassword(
+    @CurrentUser() user: SafeUser,
+    @Body() dto: ChangePasswordDto,
+  ): Promise<void> {
+    return this.authService.changePassword(
+      user.id,
+      dto.currentPassword,
+      dto.newPassword,
+    );
   }
 }

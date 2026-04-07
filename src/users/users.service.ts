@@ -2,6 +2,7 @@ import { ConflictException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PasswordHashingService } from '../auth/password-hashing.service';
 import type { SafeUser } from '../auth/types/safe-user.type';
+import { EmailJobsService } from '../mail/email-jobs.service';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CreateUserDto } from './dto/create-user.dto';
 
@@ -10,9 +11,13 @@ export class UsersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly passwords: PasswordHashingService,
+    private readonly emailJobs: EmailJobsService,
   ) {}
 
-  async createByAdmin(dto: CreateUserDto): Promise<SafeUser> {
+  async createByAdmin(
+    dto: CreateUserDto,
+    invitedBy: { email: string; name: string | null },
+  ): Promise<SafeUser> {
     const password_hash = await this.passwords.hash(dto.password);
     const role = dto.role ?? 'USER';
 
@@ -30,6 +35,14 @@ export class UsersService {
           role: true,
           name: true,
         },
+      });
+      void this.emailJobs.enqueueWelcomeCredentials({
+        toEmail: user.email,
+        recipientName: user.name,
+        loginEmail: user.email,
+        temporaryPassword: dto.password,
+        invitedByName: invitedBy.name,
+        invitedByEmail: invitedBy.email,
       });
       return {
         id: user.id,

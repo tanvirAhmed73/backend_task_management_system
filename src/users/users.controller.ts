@@ -8,7 +8,9 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { AuthRoles } from '../auth/decorators/auth-roles.decorator';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { AuthUserViewDto } from '../auth/dto/login-response.dto';
+import type { SafeUser } from '../auth/types/safe-user.type';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UsersService } from './users.service';
 
@@ -39,7 +41,13 @@ export class UsersController {
   @ApiBody({ type: CreateUserDto })
   @ApiCreatedResponse({ type: AuthUserViewDto })
   @ApiConflictResponse({ description: 'Email already registered' })
-  async create(@Body() dto: CreateUserDto): Promise<AuthUserViewDto> {
-    return this.users.createByAdmin(dto);
+  async create(
+    @Body() dto: CreateUserDto,
+    @CurrentUser() admin: SafeUser,
+  ): Promise<AuthUserViewDto> {
+    return this.users.createByAdmin(dto, {
+      email: admin.email,
+      name: admin.name,
+    });
   }
 }

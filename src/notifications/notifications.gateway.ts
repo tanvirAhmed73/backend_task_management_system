@@ -10,7 +10,11 @@ import {
 import type { Server, Socket } from 'socket.io';
 import type { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
 import { PrismaService } from '../prisma/prisma.service';
-import { NotificationsBusService, roomForUser } from './notifications-bus.service';
+import {
+  ADMINS_NOTIFICATION_ROOM,
+  NotificationsBusService,
+  roomForUser,
+} from './notifications-bus.service';
 
 const NOTIFICATIONS_NAMESPACE = '/notifications';
 
@@ -72,6 +76,9 @@ export class NotificationsGateway
         return;
       }
       await client.join(roomForUser(payload.sub));
+      if (row.role === 'ADMIN') {
+        await client.join(ADMINS_NOTIFICATION_ROOM);
+      }
       this.logger.debug(`Client ${client.id} joined ${roomForUser(payload.sub)}`);
     } catch {
       client.disconnect(true);
