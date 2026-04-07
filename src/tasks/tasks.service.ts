@@ -6,6 +6,11 @@ import {
 } from '@nestjs/common';
 import { Prisma, TaskStatus } from '@prisma/client';
 import type { SafeUser } from '../auth/types/safe-user.type';
+import {
+  NotificationsBusService,
+  TASK_ASSIGNED_EVENT,
+  type TaskAssignedNotificationPayload,
+} from '../notifications/notifications-bus.service';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CreateTaskDto } from './dto/create-task.dto';
 import type { ListTasksQueryDto } from './dto/list-tasks-query.dto';
@@ -25,7 +30,10 @@ type TaskWithRelations = Prisma.TaskGetPayload<{ include: typeof taskInclude }>;
 
 @Injectable()
 export class TasksService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifications: NotificationsBusService,
+  ) {}
 
   private toView(row: TaskWithRelations): TaskViewDto {
     return {
@@ -63,6 +71,40 @@ export class TasksService {
     return row.created_by_id === user.id;
   }
 
+  /**
+   * Notify the new assignee when they are set (create or reassignment).
+   * Skips self-assignment and no-op assignee updates.
+   */
+  private notifyNewAssignee(
+    actor: SafeUser,
+    previousAssigneeId: string | null,
+    newAssigneeId: string | null,
+    task: TaskViewDto,
+  ): void {
+    if (!newAssigneeId || newAssigneeId === actor.id) return;
+    if (previousAssigneeId === newAssigneeId) return;
+
+    const payload: TaskAssignedNotificationPayload = {
+      type: 'TASK_ASSIGNED',
+      message: `You were assigned to task "${task.title}"`,
+      task: {
+        id: task.id,
+        title: task.title,
+        status: task.status,
+      },
+      assignedBy: {
+        id: actor.id,
+        email: actor.email,
+        name: actor.name,
+      },
+    };
+    this.notifications.emitToUser(
+      newAssigneeId,
+      TASK_ASSIGNED_EVENT,
+      payload,
+    );
+  }
+
   async create(dto: CreateTaskDto, actor: SafeUser): Promise<TaskViewDto> {
     if (dto.assignee_id) {
       await this.assertActiveUserId(dto.assignee_id);
@@ -78,7 +120,9 @@ export class TasksService {
       },
       include: taskInclude,
     });
-    return this.toView(row);
+    const view = this.toView(row);
+    this.notifyNewAssignee(actor, null, row.assignee_id, view);
+    return view;
   }
 
   async findAll(query: ListTasksQueryDto): Promise<TaskViewDto[]> {
@@ -123,6 +167,8 @@ export class TasksService {
       );
     }
 
+    const previousAssigneeId = existing.assignee_id;
+
     if (dto.assignee_id !== undefined && dto.assignee_id !== null) {
       await this.assertActiveUserId(dto.assignee_id);
     }
@@ -148,7 +194,9 @@ export class TasksService {
       data,
       include: taskInclude,
     });
-    return this.toView(row);
+    const view = this.toView(row);
+    this.notifyNewAssignee(actor, previousAssigneeId, row.assignee_id, view);
+    return view;
   }
 
   async remove(id: string, actor: SafeUser): Promise<void> {

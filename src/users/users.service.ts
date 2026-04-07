@@ -47,4 +47,24 @@ export class UsersService {
       throw e;
     }
   }
+
+  /** Active users only; for admin assignee pickers and similar. */
+  async findAllActiveForAdmin(): Promise<SafeUser[]> {
+    const rows = await this.prisma.user.findMany({
+      where: { deleted_at: null },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        name: true,
+      },
+      orderBy: [{ name: 'asc' }, { email: 'asc' }],
+    });
+    return rows.map((u) => ({
+      id: u.id,
+      email: u.email,
+      role: u.role as SafeUser['role'],
+      name: u.name,
+    }));
+  }
 }

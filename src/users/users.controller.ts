@@ -1,8 +1,9 @@
-import { Body, Controller, Post } from '@nestjs/common';
+import { Body, Controller, Get, Post } from '@nestjs/common';
 import {
   ApiBody,
   ApiConflictResponse,
   ApiCreatedResponse,
+  ApiOkResponse,
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
@@ -15,6 +16,18 @@ import { UsersService } from './users.service';
 @Controller('users')
 export class UsersController {
   constructor(private readonly users: UsersService) {}
+
+  @Get()
+  @AuthRoles('ADMIN')
+  @ApiOperation({
+    summary: 'List users (admin only)',
+    description:
+      'Returns all non-deleted users (id, email, name, role). Use ids as assignee_id when creating or updating tasks.',
+  })
+  @ApiOkResponse({ type: AuthUserViewDto, isArray: true })
+  findAll(): Promise<AuthUserViewDto[]> {
+    return this.users.findAllActiveForAdmin();
+  }
 
   @Post()
   @AuthRoles('ADMIN')
