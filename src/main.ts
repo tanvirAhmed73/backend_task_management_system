@@ -14,7 +14,19 @@ async function bootstrap() {
 
   app.setGlobalPrefix('api');
   app.enableCors();
-  app.use(helmet());
+  // Default Helmet CSP blocks Swagger UI inline scripts; production (HTTPS) enforces it strictly.
+  app.use(
+    helmet({
+      crossOriginEmbedderPolicy: false,
+      contentSecurityPolicy: {
+        directives: {
+          ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+          'script-src': ["'self'", "'unsafe-inline'"],
+          'img-src': ["'self'", 'data:', 'https://validator.swagger.io'],
+        },
+      },
+    }),
+  );
 
   app.useGlobalPipes(
     new ValidationPipe({
@@ -42,7 +54,9 @@ async function bootstrap() {
     )
     .build();
   const document = SwaggerModule.createDocument(app, swaggerOptions);
-  SwaggerModule.setup('api/docs', app, document);
+  if (process.env.NODE_ENV === 'development') {
+    SwaggerModule.setup('api/docs', app, document);
+  }
 
   const port = Number.parseInt(process.env.PORT ?? '', 10) || 4000;
   await app.listen(port, '0.0.0.0');
