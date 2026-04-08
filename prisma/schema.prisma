@@ -27,6 +27,12 @@ enum AuditAction {
   TASK_ASSIGNED
 }
 
+enum NotificationType {
+  TASK_ASSIGNED
+  TASK_COMPLETED
+  TASK_COMMENT_ADDED
+}
+
 model User {
   id            String    @id @default(cuid())
   email         String    @unique
@@ -42,6 +48,7 @@ model User {
   tasks_created  Task[]    @relation("TaskCreator")
   task_comments  TaskComment[]
   audit_logs     AuditLog[]
+  notifications  Notification[]
 
   @@index([role])
   @@map("users")
@@ -109,4 +116,21 @@ model AuditLog {
   @@index([actor_id, created_at(sort: Desc)])
   @@index([task_id, created_at(sort: Desc)])
   @@map("audit_logs")
+}
+
+model Notification {
+  id         String           @id @default(cuid())
+  created_at DateTime         @default(now())
+  read_at    DateTime?
+  type       NotificationType
+  title      String
+  message    String
+  data       Json
+
+  recipient_id String
+  recipient    User @relation(fields: [recipient_id], references: [id], onDelete: Cascade)
+
+  @@index([recipient_id, created_at(sort: Desc)])
+  @@index([recipient_id, read_at])
+  @@map("notifications")
 }

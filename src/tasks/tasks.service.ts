@@ -4,7 +4,13 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { AuditAction, Prisma, TaskStatus, UserRole } from '@prisma/client';
+import {
+  AuditAction,
+  NotificationType,
+  Prisma,
+  TaskStatus,
+  UserRole,
+} from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
 import type { SafeUser } from '../auth/types/safe-user.type';
 import { EmailJobsService } from '../mail/email-jobs.service';
@@ -15,6 +21,7 @@ import {
   type TaskAssignedNotificationPayload,
   type TaskCompletedNotificationPayload,
 } from '../notifications/notifications-bus.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CreateTaskDto } from './dto/create-task.dto';
 import type { ListTasksQueryDto } from './dto/list-tasks-query.dto';
@@ -37,6 +44,7 @@ export class TasksService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsBusService,
+    private readonly notificationsStore: NotificationsService,
     private readonly emailJobs: EmailJobsService,
     private readonly audit: AuditService,
   ) {}
@@ -219,12 +227,12 @@ export class TasksService {
    * Notify the new assignee when they are set (create or reassignment).
    * Skips self-assignment and no-op assignee updates.
    */
-  private notifyNewAssignee(
+  private async notifyNewAssignee(
     actor: SafeUser,
     previousAssigneeId: string | null,
     newAssigneeId: string | null,
     task: TaskViewDto,
-  ): void {
+  ): Promise<void> {
     if (!newAssigneeId || newAssigneeId === actor.id) return;
     if (previousAssigneeId === newAssigneeId) return;
 
@@ -247,6 +255,13 @@ export class TasksService {
       TASK_ASSIGNED_EVENT,
       payload,
     );
+    await this.notificationsStore.createForUser({
+      recipientId: newAssigneeId,
+      type: NotificationType.TASK_ASSIGNED,
+      title: 'Task assigned',
+      message: payload.message,
+      data: payload,
+    });
 
     const assignee = task.assignee;
     if (assignee?.id === newAssigneeId) {
@@ -282,6 +297,12 @@ export class TasksService {
       },
     };
     this.notifications.emitToAdmins(TASK_COMPLETED_EVENT, payload);
+    await this.notificationsStore.createForAdmins({
+      type: NotificationType.TASK_COMPLETED,
+      title: 'Task completed',
+      message: payload.message,
+      data: payload,
+    });
 
     const admins = await this.prisma.user.findMany({
       where: { deleted_at: null, role: UserRole.ADMIN },
@@ -332,7 +353,7 @@ export class TasksService {
     });
     const view = this.toView(row);
     await this.auditTaskCreated(row, actor.id);
-    this.notifyNewAssignee(actor, null, row.assignee_id, view);
+    await this.notifyNewAssignee(actor, null, row.assignee_id, view);
     return view;
   }
 
@@ -407,7 +428,7 @@ export class TasksService {
     });
     const view = this.toView(row);
     await this.auditTaskChanges(existing, row, actor.id);
-    this.notifyNewAssignee(actor, previousAssigneeId, row.assignee_id, view);
+    await this.notifyNewAssignee(actor, previousAssigneeId, row.assignee_id, view);
     await this.notifyAdminsIfAssigneeCompletedTask(existing, row, actor, view);
     return view;
   }

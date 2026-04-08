@@ -3,13 +3,14 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { NotificationType, Prisma } from '@prisma/client';
 import type { SafeUser } from '../auth/types/safe-user.type';
 import {
   NotificationsBusService,
   TASK_COMMENT_EVENT,
   type TaskCommentNotificationPayload,
 } from '../notifications/notifications-bus.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CreateTaskCommentDto } from './dto/create-task-comment.dto';
 import type { TaskCommentViewDto } from './dto/task-comment-view.dto';
@@ -30,6 +31,7 @@ export class TaskCommentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsBusService,
+    private readonly notificationsStore: NotificationsService,
   ) {}
 
   private toView(row: CommentWithAuthor): TaskCommentViewDto {
@@ -119,15 +121,15 @@ export class TaskCommentsService {
     });
 
     const view = this.toView(row);
-    this.pushCommentNotifications(task, view, actor);
+    await this.pushCommentNotifications(task, view, actor);
     return view;
   }
 
-  private pushCommentNotifications(
+  private async pushCommentNotifications(
     task: { id: string; title: string; assignee_id: string | null; created_by_id: string },
     comment: TaskCommentViewDto,
     actor: SafeUser,
-  ): void {
+  ): Promise<void> {
     const payload: TaskCommentNotificationPayload = {
       type: 'TASK_COMMENT_ADDED',
       task: { id: task.id, title: task.title },
@@ -154,9 +156,22 @@ export class TaskCommentsService {
       }
       for (const userId of targets) {
         this.notifications.emitToUser(userId, TASK_COMMENT_EVENT, payload);
+        await this.notificationsStore.createForUser({
+          recipientId: userId,
+          type: NotificationType.TASK_COMMENT_ADDED,
+          title: `New comment on "${task.title}"`,
+          message: 'Admin commented on the task',
+          data: payload,
+        });
       }
     } else {
       this.notifications.emitToAdmins(TASK_COMMENT_EVENT, payload);
+      await this.notificationsStore.createForAdmins({
+        type: NotificationType.TASK_COMMENT_ADDED,
+        title: `New comment on "${task.title}"`,
+        message: `${actor.name?.trim() || actor.email} commented on a task`,
+        data: payload,
+      });
     }
   }
 }

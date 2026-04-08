@@ -8,6 +8,7 @@ import { AuditModule } from './audit/audit.module';
 import appConfig from './config/app.config';
 import { createRedisConnection } from './mail/redis-connection.factory';
 import { MailModule } from './mail/mail.module';
+import { NotificationsModule } from './notifications/notifications.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { TasksModule } from './tasks/tasks.module';
 import { UsersModule } from './users/users.module';
@@ -29,6 +30,7 @@ import { UsersModule } from './users/users.module';
     MailModule,
     AuthModule,
     AuditModule,
+    NotificationsModule,
     UsersModule,
     TasksModule,
   ],
