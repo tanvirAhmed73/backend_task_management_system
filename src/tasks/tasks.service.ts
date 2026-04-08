@@ -4,7 +4,8 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, TaskStatus, UserRole } from '@prisma/client';
+import { AuditAction, Prisma, TaskStatus, UserRole } from '@prisma/client';
+import { AuditService } from '../audit/audit.service';
 import type { SafeUser } from '../auth/types/safe-user.type';
 import { EmailJobsService } from '../mail/email-jobs.service';
 import {
@@ -37,6 +38,7 @@ export class TasksService {
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsBusService,
     private readonly emailJobs: EmailJobsService,
+    private readonly audit: AuditService,
   ) {}
 
   private toView(row: TaskWithRelations): TaskViewDto {
@@ -73,6 +75,144 @@ export class TasksService {
   private canDelete(user: SafeUser, row: { created_by_id: string }): boolean {
     if (user.role === 'ADMIN') return true;
     return row.created_by_id === user.id;
+  }
+
+  private assigneeLabel(
+    u: { name: string | null; email: string } | null,
+  ): string {
+    if (!u) return 'Unassigned';
+    return u.name?.trim() || u.email;
+  }
+
+  private async auditTaskCreated(
+    row: TaskWithRelations,
+    actorId: string,
+  ): Promise<void> {
+    await this.audit.append({
+      actorId,
+      action: AuditAction.TASK_CREATED,
+      entityId: row.id,
+      taskId: row.id,
+      payload: {
+        summary: `Task Created: "${row.title}"`,
+        task: {
+          title: row.title,
+          description: row.description,
+          status: row.status,
+          assignee: row.assignee
+            ? {
+                id: row.assignee.id,
+                email: row.assignee.email,
+                name: row.assignee.name,
+              }
+            : null,
+        },
+      },
+    });
+  }
+
+  private async auditTaskChanges(
+    existing: TaskWithRelations,
+    row: TaskWithRelations,
+    actorId: string,
+  ): Promise<void> {
+    const taskId = row.id;
+    const title = row.title;
+
+    if (existing.status !== row.status) {
+      await this.audit.append({
+        actorId,
+        action: AuditAction.TASK_STATUS_CHANGED,
+        entityId: taskId,
+        taskId,
+        payload: {
+          summary: `Status Changed: "${title}" from "${existing.status}" to "${row.status}"`,
+          task_title: title,
+          before: { status: existing.status },
+          after: { status: row.status },
+        },
+      });
+    }
+
+    if (existing.assignee_id !== row.assignee_id) {
+      await this.audit.append({
+        actorId,
+        action: AuditAction.TASK_ASSIGNED,
+        entityId: taskId,
+        taskId,
+        payload: {
+          summary: `Task Assigned: "${title}" from "${this.assigneeLabel(existing.assignee)}" to "${this.assigneeLabel(row.assignee)}"`,
+          task_title: title,
+          before: existing.assignee
+            ? {
+                id: existing.assignee.id,
+                email: existing.assignee.email,
+                name: existing.assignee.name,
+              }
+            : null,
+          after: row.assignee
+            ? {
+                id: row.assignee.id,
+                email: row.assignee.email,
+                name: row.assignee.name,
+              }
+            : null,
+        },
+      });
+    }
+
+    if (
+      existing.title !== row.title ||
+      existing.description !== row.description
+    ) {
+      await this.audit.append({
+        actorId,
+        action: AuditAction.TASK_UPDATED,
+        entityId: taskId,
+        taskId,
+        payload: {
+          summary: `Task Updated: "${title}" (title or description)`,
+          before: {
+            title: existing.title,
+            description: existing.description,
+          },
+          after: { title: row.title, description: row.description },
+        },
+      });
+    }
+  }
+
+  private async auditTaskDeleted(
+    snap: {
+      id: string;
+      title: string;
+      description: string;
+      status: TaskStatus;
+      assignee: TaskWithRelations['assignee'];
+    },
+    actorId: string,
+  ): Promise<void> {
+    await this.audit.append({
+      actorId,
+      action: AuditAction.TASK_DELETED,
+      entityId: snap.id,
+      taskId: snap.id,
+      payload: {
+        summary: `Task Deleted: "${snap.title}"`,
+        snapshot: {
+          title: snap.title,
+          description: snap.description,
+          status: snap.status,
+          assignee: snap.assignee
+            ? {
+                id: snap.assignee.id,
+                email: snap.assignee.email,
+                name: snap.assignee.name,
+              }
+            : null,
+        },
+      },
+    });
   }
 
   /**
@@ -191,6 +331,7 @@ export class TasksService {
       include: taskInclude,
     });
     const view = this.toView(row);
+    await this.auditTaskCreated(row, actor.id);
     this.notifyNewAssignee(actor, null, row.assignee_id, view);
     return view;
   }
@@ -265,6 +406,7 @@ export class TasksService {
       include: taskInclude,
     });
     const view = this.toView(row);
+    await this.auditTaskChanges(existing, row, actor.id);
     this.notifyNewAssignee(actor, previousAssigneeId, row.assignee_id, view);
     await this.notifyAdminsIfAssigneeCompletedTask(existing, row, actor, view);
     return view;
@@ -273,7 +415,9 @@ export class TasksService {
   async remove(id: string, actor: SafeUser): Promise<void> {
     const existing = await this.prisma.task.findFirst({
       where: { id, deleted_at: null },
-      select: { id: true, created_by_id: true },
+      include: {
+        assignee: { select: { id: true, email: true, name: true } },
+      },
     });
     if (!existing) {
       throw new NotFoundException('Task not found');
@@ -283,6 +427,17 @@ export class TasksService {
         'You can only delete tasks you created (admins: any task)',
       );
     }
+
+    await this.auditTaskDeleted(
+      {
+        id: existing.id,
+        title: existing.title,
+        description: existing.description,
+        status: existing.status,
+        assignee: existing.assignee,
+      },
+      actor.id,
+    );
 
     await this.prisma.task.update({
       where: { id },

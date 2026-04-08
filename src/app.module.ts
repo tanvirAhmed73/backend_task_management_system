@@ -4,6 +4,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
+import { AuditModule } from './audit/audit.module';
 import appConfig from './config/app.config';
 import { createRedisConnection } from './mail/redis-connection.factory';
 import { MailModule } from './mail/mail.module';
@@ -27,6 +28,7 @@ import { UsersModule } from './users/users.module';
     PrismaModule,
     MailModule,
     AuthModule,
+    AuditModule,
     UsersModule,
     TasksModule,
   ],
