@@ -1,0 +1,55 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: root
+      POSTGRES_DB: task_management_system
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d task_management_system']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: ['redis-server', '--appendonly', 'yes']
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - '4000:4000'
+    environment:
+      NODE_ENV: development
+      APP_NAME: backend_task_management_system
+      PORT: '4000'
+      DATABASE_URL: postgresql://postgres:root@postgres:5432/task_management_system
+      REDIS_HOST: redis
+      REDIS_PORT: '6379'
+      JWT_SECRET: dev-only-change-in-production-use-openssl-rand-hex-32
+      JWT_ACCESS_EXPIRES_IN: 15m
+      BCRYPT_ROUNDS: '12'
+      SEED_ADMIN_EMAIL: admin@local.dev
+      SEED_ADMIN_PASSWORD: ChangeMeAdmin123!
+      SEED_USER_EMAIL: user@local.dev
+      SEED_USER_PASSWORD: ChangeMeUser123!
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  redis_data:
